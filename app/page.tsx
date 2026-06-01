@@ -1,65 +1,68 @@
-import Image from "next/image";
+'use client';
+import { useEffect, useState } from 'react';
+import { supabase } from '@/lib/supabase';
+import { motion } from 'framer-motion';
 
 export default function Home() {
+  const [photos, setPhotos] = useState<any[]>([]);
+  const [bgImage, setBgImage] = useState('');
+
+  useEffect(() => {
+    const fetchPhotos = async () => {
+      const { data } = await supabase
+        .from('photos')
+        .select('*')
+        .eq('status', 'approved')
+        .order('created_at', { ascending: false });
+
+      if (data && data.length > 0) {
+        setPhotos(data);
+        // Set the most recent horizontal-friendly photo as the background
+        setBgImage(data[0].image_url);
+      }
+    };
+    fetchPhotos();
+  }, []);
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
+    <main className="relative min-h-screen w-full overflow-hidden text-pov-dark font-sans transition-all duration-1000">
+      {/* Dynamic Background */}
+      <div
+        className="absolute inset-0 z-0 w-full h-full bg-cover bg-center transition-all duration-1000"
+        style={{ backgroundImage: `url(${bgImage})` }}
+      />
+
+      {/* Light Cloudy Overlay for readability */}
+      <div className="absolute inset-0 z-10 bg-white/40 backdrop-blur-3xl" />
+
+      {/* Content */}
+      <div className="relative z-20 max-w-7xl mx-auto px-6 py-12">
+        <header className="flex justify-between items-center mb-16">
+          <h1 className="text-4xl font-bold tracking-tighter text-white drop-shadow-md">pov.et</h1>
+          <a href="/submit" className="text-sm font-medium tracking-wide uppercase px-4 py-2 bg-white/20 backdrop-blur-md rounded-full hover:bg-white/40 transition">
+            Submit POV
           </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+        </header>
+
+        {/* Masonry Grid */}
+        <div className="columns-1 md:columns-2 lg:columns-3 gap-6 space-y-6">
+          {photos.map((photo, i) => (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: i * 0.1 }}
+              key={photo.id}
+              className="relative group break-inside-avoid rounded-2xl overflow-hidden bg-white/10 backdrop-blur-lg border border-white/20 shadow-xl"
+            >
+              <img src={photo.image_url} alt="POV" className="w-full h-auto object-cover" />
+              <div className="absolute bottom-0 w-full p-4 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition duration-300">
+                <p className="text-white text-sm font-medium">{photo.caption}</p>
+                <p className="text-white/70 text-xs">📸 {photo.author_credit}</p>
+              </div>
+            </motion.div>
+          ))}
         </div>
-      </main>
-    </div>
+      </div>
+    </main>
   );
 }
