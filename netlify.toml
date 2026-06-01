@@ -1,5 +1,5 @@
 [build]
-  command = "NEXT_TELEMETRY_DISABLED=1 npx next build --no-lint"
+  command = "npm run build"
   publish = ".next"
 
 [[plugins]]
