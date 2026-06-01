@@ -14,17 +14,24 @@ export default function Home() {
   const [likedPhotos, setLikedPhotos] = useState<string[]>([]);
   const [bgIndex, setBgIndex] = useState(0);
   const [isZipping, setIsZipping] = useState(false);
+  const [isLoading, setIsLoading] = useState(true); // Tracks initial database sync
 
   useEffect(() => {
     const fetchPhotos = async () => {
-      const { data } = await supabase
-        .from('photos')
-        .select('*')
-        .eq('status', 'approved')
-        .order('created_at', { ascending: false });
-      if (data && data.length > 0) {
-        setPhotos(data);
-        setFilteredPhotos(data);
+      try {
+        const { data } = await supabase
+          .from('photos')
+          .select('*')
+          .eq('status', 'approved')
+          .order('created_at', { ascending: false });
+        if (data && data.length > 0) {
+          setPhotos(data);
+          setFilteredPhotos(data);
+        }
+      } catch (err) {
+        console.error("Error reading archive:", err);
+      } finally {
+        setIsLoading(false); // Gracefully kill loader once data drops
       }
     };
     fetchPhotos();
@@ -182,7 +189,7 @@ export default function Home() {
 
       await Promise.all(watermarkPromises);
       const content = await zip.generateAsync({ type: 'blob' });
-
+      
       const link = document.createElement('a');
       link.href = URL.createObjectURL(content);
       link.download = `${folderName}.zip`;
@@ -195,6 +202,20 @@ export default function Home() {
   };
 
   const currentBgUrl = filteredPhotos[bgIndex]?.image_url || '';
+
+  // FULL SCREEN GLASSMORPHIC ARCHIVE INITIALIZER
+  if (isLoading) {
+    return (
+      <div className="relative min-h-screen bg-neutral-950 flex flex-col items-center justify-center overflow-hidden">
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-72 h-72 bg-amber-500/10 rounded-full blur-3xl animate-pulse" />
+        <div className="relative z-10 bg-white/5 border border-white/10 px-6 py-4 rounded-2xl backdrop-blur-xl text-center shadow-2xl">
+          <span className="font-mono text-xs text-neutral-400 tracking-[0.25em] uppercase block animate-pulse">
+            ⚡ Synchronizing Grid Frames...
+          </span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <main className="relative min-h-screen w-full overflow-x-hidden text-neutral-900 bg-neutral-950">
@@ -326,10 +347,11 @@ export default function Home() {
                       <div
                         key={photo.id || idx}
                         onClick={() => setSelectedPhoto(photo)}
-                        className={`flex-none w-16 h-16 rounded-xl overflow-hidden cursor-pointer transition-all duration-300 border ${selectedPhoto.id === photo.id
-                            ? 'border-amber-400 scale-95 ring-2 ring-amber-400/20'
+                        className={`flex-none w-16 h-16 rounded-xl overflow-hidden cursor-pointer transition-all duration-300 border ${
+                          selectedPhoto.id === photo.id 
+                            ? 'border-amber-400 scale-95 ring-2 ring-amber-400/20' 
                             : 'border-white/10 opacity-40 hover:opacity-100'
-                          }`}
+                        }`}
                       >
                         <img src={photo.image_url} alt="" className="w-full h-full object-cover pointer-events-none" />
                       </div>
