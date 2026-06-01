@@ -3,44 +3,78 @@ import * as cheerio from 'cheerio';
 import { supabase } from '@/lib/supabase';
 
 export async function GET() {
-    const channelUrl = 'https://t.me/s/pov_et';
+    const baseChannelUrl = 'https://t.me/s/pov_et';
+    let elements: any[] = [];
+    let currentBeforeId: string | null = null;
+    const maxSteps = 60; // Deep crawl to catch 200-300+ historical photos
 
     try {
-        const response = await fetch(channelUrl, { cache: 'no-store' });
-        const html = await response.text();
-        const $ = cheerio.load(html);
+        for (let step = 0; step < maxSteps; step++) {
+            const targetUrl = currentBeforeId ? `${baseChannelUrl}?before=${currentBeforeId}` : baseChannelUrl;
+            const response = await fetch(targetUrl, {
+                cache: 'no-store',
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                }
+            });
 
-        const posts: any[] = [];
+            if (!response.ok) break;
 
-        $('.tgme_widget_message').each((i, el) => {
-            // Extract background image from the style attribute
-            const style = $(el).find('.tgme_widget_message_photo_wrap').attr('style');
-            const bgMatch = style?.match(/background-image:url\('(.+?)'\)/);
-            const imageUrl = bgMatch ? bgMatch[1] : null;
+            const html = await response.text();
+            const $ = cheerio.load(html);
+            let batchEarliestId: number | null = null;
 
-            const captionText = $(el).find('.tgme_widget_message_text').text();
+            $('.tgme_widget_message').each((_, el) => {
+                const dataPost = $(el).attr('data-post');
+                if (dataPost) {
+                    const idStr = dataPost.split('/').pop();
+                    const id = idStr ? parseInt(idStr, 10) : null;
+                    if (id && (batchEarliestId === null || id < batchEarliestId)) {
+                        batchEarliestId = id;
+                    }
+                }
 
-            if (imageUrl) {
-                posts.push({
-                    image_url: imageUrl,
-                    caption: captionText || 'Untitled',
-                    author_credit: 'Telegram Contributor', // Parse handle from caption if needed
-                    status: 'pending' // Goes to CMS first
-                });
+                const styleAttr = $(el).find('.tgme_widget_message_photo_wrap').attr('style');
+                const imageMatch = styleAttr?.match(/background-image:url\('(.+?)'\)/);
+                const imageUrl = imageMatch ? imageMatch[1] : null;
+
+                const rawCaption = $(el).find('.tgme_widget_message_text').text() || '';
+
+                if (imageUrl && rawCaption) {
+                    // 🎯 MAGIC REGEX: Extract the photographer handle after "by @"
+                    const authorMatch = rawCaption.match(/by\s+@([\w_]+)/i);
+                    const authorCredit = authorMatch ? `@${authorMatch[1]}` : '@archive';
+
+                    // 🧼 CLEAN ENGINE: Strip out the attribution text and telegram handles from the final display caption
+                    let cleanedCaption = rawCaption
+                        .replace(/📷\s*by\s*@[\w_]+/i, '') // Removes "📷 by @username"
+                        .replace(/@pov_et/g, '')           // Removes channel spam tags
+                        .replace(/\s+/g, ' ')              // Collapses extra spaces
+                        .trim();
+
+                    elements.push({
+                        image_url: imageUrl,
+                        caption: cleanedCaption || "Addis Street Frame",
+                        author_credit: authorCredit,
+                        status: 'approved'
+                    });
+                }
+            });
+
+            if (batchEarliestId) {
+                currentBeforeId = batchEarliestId.toString();
+            } else {
+                break;
             }
-        });
-
-        // Insert new posts into Supabase, avoiding duplicates (make image_url unique in DB)
-        if (posts.length > 0) {
-            const { error } = await supabase
-                .from('photos')
-                .upsert(posts, { onConflict: 'image_url' });
-
-            if (error) console.error('Supabase Error:', error);
+            await new Promise((resolve) => setTimeout(resolve, 150));
         }
 
-        return NextResponse.json({ success: true, newPosts: posts.length });
-    } catch (error) {
-        return NextResponse.json({ error: 'Failed to scrape' }, { status: 500 });
+        if (elements.length > 0) {
+            await supabase.from('photos').upsert(elements, { onConflict: 'image_url' });
+        }
+
+        return NextResponse.json({ success: true, totalScraped: elements.length });
+    } catch (error: any) {
+        return NextResponse.json({ success: false, error: error.message }, { status: 500 });
     }
 }
