@@ -3,14 +3,17 @@ import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Download, X, Eye, Camera, Search, Heart, Share2 } from 'lucide-react';
+import JSZip from 'jszip';
 
 export default function Home() {
   const [photos, setPhotos] = useState<any[]>([]);
   const [filteredPhotos, setFilteredPhotos] = useState<any[]>([]);
   const [selectedPhoto, setSelectedPhoto] = useState<any | null>(null);
+  const [photographerPhotos, setPhotographerPhotos] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [likedPhotos, setLikedPhotos] = useState<string[]>([]);
   const [bgIndex, setBgIndex] = useState(0);
+  const [isZipping, setIsZipping] = useState(false);
 
   useEffect(() => {
     const fetchPhotos = async () => {
@@ -55,6 +58,25 @@ export default function Home() {
     }, 8000);
     return () => clearInterval(interval);
   }, [filteredPhotos]);
+
+  // Fetch concurrent photos from the same photographer when lightbox opens
+  useEffect(() => {
+    if (!selectedPhoto) {
+      setPhotographerPhotos([]);
+      return;
+    }
+    const fetchAuthorArchive = async () => {
+      const { data } = await supabase
+        .from('photos')
+        .select('*')
+        .eq('author_credit', selectedPhoto.author_credit)
+        .eq('status', 'approved');
+      if (data) {
+        setPhotographerPhotos(data);
+      }
+    };
+    fetchAuthorArchive();
+  }, [selectedPhoto]);
 
   const toggleLike = (photoId: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
@@ -117,7 +139,61 @@ export default function Home() {
     };
   };
 
-  // FIX: Added optional chaining (?.) so it never throws an undefined property error
+  // Automated watermarked ZIP compiler engine
+  const downloadEntireArchive = async (author: string) => {
+    setIsZipping(true);
+    const zip = new JSZip();
+    const folderName = `${author.replace('@', '')}_pov_et_archive`;
+    const imgFolder = zip.folder(folderName);
+
+    try {
+      const watermarkPromises = photographerPhotos.map((photo, index) => {
+        return new Promise<void>((resolve) => {
+          const img = new Image();
+          img.crossOrigin = 'anonymous';
+          img.src = photo.image_url;
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = img.width;
+            canvas.height = img.height;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) { resolve(); return; }
+
+            ctx.drawImage(img, 0, 0);
+            const fontSize = Math.max(22, Math.floor(img.width * 0.022));
+            ctx.font = `bold ${fontSize}px sans-serif`;
+            ctx.shadowColor = 'rgba(0, 0, 0, 0.7)';
+            ctx.shadowBlur = 8;
+            ctx.fillStyle = '#ffffff';
+
+            const watermarkText = `📸 ${author} via pov.et`;
+            ctx.fillText(watermarkText, canvas.width - ctx.measureText(watermarkText).width - (fontSize * 1.5), canvas.height - (fontSize * 1.5));
+
+            canvas.toBlob((blob) => {
+              if (blob) {
+                imgFolder?.file(`frame_${index + 1}_by_${author.replace('@', '')}.jpg`, blob);
+              }
+              resolve();
+            }, 'image/jpeg', 0.95);
+          };
+          img.onerror = () => resolve();
+        });
+      });
+
+      await Promise.all(watermarkPromises);
+      const content = await zip.generateAsync({ type: 'blob' });
+
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(content);
+      link.download = `${folderName}.zip`;
+      link.click();
+    } catch (err) {
+      console.error("Bulk archive packaging broken:", err);
+    } finally {
+      setIsZipping(false);
+    }
+  };
+
   const currentBgUrl = filteredPhotos[bgIndex]?.image_url || '';
 
   return (
@@ -127,7 +203,7 @@ export default function Home() {
       <div className="fixed inset-0 z-0 w-full h-full pointer-events-none transition-all duration-1000 ease-in-out">
         {currentBgUrl && (
           <div
-            className="absolute inset-0 bg-cover bg-center scale-105 transition-all duration-1000"
+            className="absolute inset-0 bg-cover bg-center scale-105 transition-all duration-1000 blur-[5px]"
             style={{ backgroundImage: `url(${currentBgUrl})` }}
           />
         )}
@@ -227,22 +303,49 @@ export default function Home() {
         {selectedPhoto && (
           <motion.div
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 bg-black/95 backdrop-blur-xl flex flex-col md:flex-row items-center justify-center p-4 md:p-12"
+            className="fixed inset-0 z-50 bg-black/95 backdrop-blur-xl flex flex-col md:flex-row items-center justify-center p-4 md:p-12 gap-6"
           >
             <button onClick={() => setSelectedPhoto(null)} className="absolute top-6 right-6 p-2.5 bg-white/10 text-white hover:bg-white/20 rounded-full transition-colors z-50">
               <X className="w-5 h-5" />
             </button>
 
-            <div className="flex-1 max-w-4xl max-h-[65vh] md:max-h-[85vh] flex items-center justify-center">
-              <img src={selectedPhoto.image_url} alt="" className="max-w-full max-h-full object-contain rounded-xl shadow-2xl" />
+            {/* Left Box Workspace: Focus Frame + Horizontal Streaming Carousel */}
+            <div className="flex-1 max-w-4xl w-full flex flex-col items-center justify-center gap-6">
+              <div className="max-w-full max-h-[50vh] md:max-h-[65vh] flex items-center justify-center">
+                <img src={selectedPhoto.image_url} alt="" className="max-w-full max-h-full object-contain rounded-xl shadow-2xl" />
+              </div>
+
+              {/* Dynamic Photographer Horizontal Swipe Slider Component */}
+              {photographerPhotos.length > 1 && (
+                <div className="w-full max-w-2xl bg-white/5 border border-white/10 p-3 rounded-2xl backdrop-blur-md">
+                  <span className="text-[9px] font-mono text-neutral-400 uppercase tracking-widest block mb-2 px-1">
+                    More from {selectedPhoto.author_credit} ({photographerPhotos.length})
+                  </span>
+                  <div className="flex gap-2.5 overflow-x-auto pb-1 px-1 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
+                    {photographerPhotos.map((photo, idx) => (
+                      <div
+                        key={photo.id || idx}
+                        onClick={() => setSelectedPhoto(photo)}
+                        className={`flex-none w-16 h-16 rounded-xl overflow-hidden cursor-pointer transition-all duration-300 border ${selectedPhoto.id === photo.id
+                            ? 'border-amber-400 scale-95 ring-2 ring-amber-400/20'
+                            : 'border-white/10 opacity-40 hover:opacity-100'
+                          }`}
+                      >
+                        <img src={photo.image_url} alt="" className="w-full h-full object-cover pointer-events-none" />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
-            <div className="w-full md:w-80 md:ml-8 flex flex-col text-white mt-6 md:mt-0 max-w-md bg-white/5 border border-white/10 p-6 rounded-2xl backdrop-blur-md">
+            {/* Right Box Sidebar Workspace: Action Panels */}
+            <div className="w-full md:w-80 flex flex-col text-white max-w-md bg-white/5 border border-white/10 p-6 rounded-2xl backdrop-blur-md shrink-0">
               <div className="border-b border-white/10 pb-4 mb-4">
                 <span className="text-[10px] uppercase tracking-widest font-bold text-amber-400 flex items-center gap-1">
                   <Eye className="w-3 h-3" /> Context Frame
                 </span>
-                <p className="text-sm font-light mt-2 text-neutral-200 leading-relaxed">
+                <p className="text-sm font-light mt-2 text-neutral-200 leading-relaxed max-h-[12vh] overflow-y-auto">
                   {selectedPhoto.caption}
                 </p>
               </div>
@@ -262,13 +365,24 @@ export default function Home() {
                 </div>
               </div>
 
-              <button
-                onClick={() => downloadWithCredit(selectedPhoto.image_url, selectedPhoto.author_credit)}
-                className="w-full flex items-center justify-center gap-2 bg-white text-black font-bold text-sm py-3.5 rounded-xl hover:bg-neutral-200 transition-all shadow-xl"
-              >
-                <Download className="w-4 h-4" />
-                Download with Credit
-              </button>
+              <div className="flex flex-col gap-2">
+                <button
+                  onClick={() => downloadWithCredit(selectedPhoto.image_url, selectedPhoto.author_credit)}
+                  className="w-full flex items-center justify-center gap-2 bg-white text-black font-bold text-sm py-3.5 rounded-xl hover:bg-neutral-200 transition-all shadow-xl"
+                >
+                  <Download className="w-4 h-4" />
+                  Download with Credit
+                </button>
+
+                {/* Bulk Bundle Downloader Action */}
+                <button
+                  onClick={() => downloadEntireArchive(selectedPhoto.author_credit)}
+                  disabled={isZipping || photographerPhotos.length === 0}
+                  className="w-full flex items-center justify-center gap-2 bg-transparent border border-white/10 text-white font-mono text-xs py-3 rounded-xl hover:bg-white/10 transition-all disabled:opacity-20"
+                >
+                  {isZipping ? 'Compiling ZIP...' : `Download Archive (.ZIP)`}
+                </button>
+              </div>
             </div>
           </motion.div>
         )}
