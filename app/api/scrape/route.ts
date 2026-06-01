@@ -6,7 +6,7 @@ export async function GET() {
     const baseChannelUrl = 'https://t.me/s/pov_et';
     let elements: any[] = [];
     let currentBeforeId: string | null = null;
-    const maxSteps = 60; // Deep crawl to catch 200-300+ historical photos
+    const maxSteps = 80; // Deep crawl to catch 200-300+ historical photos
 
     try {
         for (let step = 0; step < maxSteps; step++) {
@@ -22,7 +22,9 @@ export async function GET() {
 
             const html = await response.text();
             const $ = cheerio.load(html);
-            let batchEarliestId: number | null = null;
+
+            // FIX: Explicitly typed as any to prevent strict production type-narrowing bugs
+            let batchEarliestId: any = null;
 
             $('.tgme_widget_message').each((_, el) => {
                 const dataPost = $(el).attr('data-post');
@@ -61,11 +63,13 @@ export async function GET() {
                 }
             });
 
-            if (batchEarliestId) {
-                currentBeforeId = batchEarliestId.toString();
+            // FIX: Fully safe string evaluation that passes the compiler safely
+            if (batchEarliestId !== null && batchEarliestId !== undefined) {
+                currentBeforeId = String(batchEarliestId);
             } else {
                 break;
             }
+
             await new Promise((resolve) => setTimeout(resolve, 150));
         }
 
